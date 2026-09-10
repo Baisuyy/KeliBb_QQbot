@@ -1,0 +1,4 @@
+botpy
+aiohttp
+tiktoken
+aiosqlite

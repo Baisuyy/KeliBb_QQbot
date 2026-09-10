@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.log
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+*.json
+last_date.json
+user_names.json
+contexts/
