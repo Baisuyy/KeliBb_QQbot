@@ -275,7 +275,7 @@ async def cmd_tts(message, args, client, ai, is_group, session_id):
                 media=media,
                 msg_id=getattr(message, 'id', None)
             )
-        return f"🎤 语音已发送喵～"
+        return None  # 语音已直接发送，避免外层再发文本导致 msg_id 重复去重
     except Exception as e:
         traceback.print_exc()
         return f"❌ TTS 处理失败喵：{str(e)[:100]}"
