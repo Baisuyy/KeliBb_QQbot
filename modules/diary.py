@@ -46,7 +46,7 @@ def get_context_text(ai, session_id: str) -> str:
         if role == 'user':
             lines.append(f"用户: {content}")
         elif role == 'assistant':
-            lines.append(f"可丽堡堡: {content}")
+            lines.append(f"驴吻墙: {content}")
     return "\n".join(lines)
 
 async def generate_diary_from_text(ai, context_text: str) -> str:

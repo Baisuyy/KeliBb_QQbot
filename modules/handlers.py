@@ -78,7 +78,7 @@ class MessageHandler:
             reply = await self.ai.chat(session_id, enhanced_content, is_group)
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             append_entry(f"[{now}] {display_name}: {clean_content}")
-            append_entry(f"[{now}] 可丽堡堡: {reply}")
+            append_entry(f"[{now}] 驴吻墙: {reply}")
             await send_reply(self.client, message, reply, is_group)
 
     def _get_help(self, is_group: bool):

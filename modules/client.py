@@ -18,7 +18,7 @@ class MyClient(botpy.Client):
         # 启动后台告警循环
         self._alert_task = asyncio.create_task(self._alert_loop())
         # 发送上线通知（测试私聊通道）
-        await self._send_alert("🎉 可丽堡堡已上线喵！我随时待命～")
+        await self._send_alert("🎉 驴吻墙已上线！我随时待命～")
 
     async def on_event(self, event):
         pass   # 可选择性打印日志
