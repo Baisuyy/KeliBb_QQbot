@@ -1,4 +1,5 @@
 import json
+import os
 import aiohttp
 import asyncio
 import traceback
@@ -9,9 +10,41 @@ from modules.context_manager import context_manager
 from modules.context_persistence import load_context, save_context, delete_context
 from modules.persona import load_persona
 
+# 运行时模型切换的持久化文件
+MODEL_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model_state.json")
+
+
 class AIChat:
     def __init__(self):
         self.contexts = {}
+        self.current_model = self._load_saved_model()
+
+    def _load_saved_model(self):
+        """从持久化文件加载已切换的模型，没有则用 config 默认值"""
+        try:
+            if os.path.exists(MODEL_STATE_FILE):
+                with open(MODEL_STATE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                saved = data.get("model")
+                if saved:
+                    print(f"🤖 已恢复上次切换的模型: {saved}")
+                    return saved
+        except Exception as e:
+            print(f"⚠️ 读取模型状态失败: {e}")
+        return AI_MODEL
+
+    def set_model(self, model_name: str) -> str:
+        """切换当前模型并持久化，返回结果说明"""
+        if not model_name:
+            return "❌ 模型名不能为空喵～"
+        old = self.current_model
+        self.current_model = model_name
+        try:
+            with open(MODEL_STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump({"model": model_name}, f, ensure_ascii=False)
+            return f"✅ 已从「{old}」切换到「{model_name}」喵～"
+        except Exception as e:
+            return f"✅ 已切换为「{model_name}」，但持久化失败：{e}"
 
     def load_all_contexts(self):
         """启动时加载所有已保存的上下文"""
@@ -102,7 +135,7 @@ class AIChat:
             "Content-Type": "application/json"
         }
         payload = {
-            "model": AI_MODEL,
+            "model": self.current_model,
             "messages": messages,
             "stream": True
         }

@@ -38,7 +38,7 @@ class MessageHandler:
             if cmd in ("/status", "/状态"):
                 reply = await cmd_status()
             elif cmd == "/models":
-                reply = await cmd_models(message, args, is_group)
+                reply = await cmd_models(message, args, is_group, ai=self.ai)
             elif cmd in ("/help", "/帮助"):
                 reply = get_help(is_group)
             elif cmd == "/clear":

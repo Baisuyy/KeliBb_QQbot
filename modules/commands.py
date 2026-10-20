@@ -282,8 +282,8 @@ async def cmd_tts(message, args, client, ai, is_group, session_id):
         return f"❌ TTS 处理失败喵：{str(e)[:100]}"
 
 
-async def cmd_models(message, args, is_group=False):
-    """查询 AI API 当前可用的模型列表"""
+async def cmd_models(message, args, is_group=False, ai=None):
+    """查询 AI API 当前可用的模型列表；带参数可切换模型（序号或模型名）"""
     user_id = _get_user_id(message, is_group)
     if user_id != ADMIN_OPENID:
         return "⛔ 只有管理员才能执行此命令喵～"
@@ -320,13 +320,34 @@ async def cmd_models(message, args, is_group=False):
                 seen.add(name)
                 models.append(name)
 
-        current = AI_MODEL
+        # ===== 切换模型 =====
+        if args:
+            target = None
+            if args.isdigit() and 1 <= int(args) <= len(models):
+                target = models[int(args) - 1]
+            elif args in models:
+                target = args
+            else:
+                # 支持大小写模糊匹配
+                lower = args.lower()
+                for name in models:
+                    if name.lower() == lower:
+                        target = name
+                        break
+
+            if not target:
+                return f"❌ 找不到模型「{args}」，发送 /models 查看可用列表喵～"
+            return ai.set_model(target)
+
+        # ===== 仅查询 =====
+        current = ai.current_model if ai is not None else AI_MODEL
         lines = [f"📋 API 可用模型（共 {len(models)} 个）："]
         for i, name in enumerate(models, 1):
             mark = " 👈 当前使用" if name == current else ""
             lines.append(f"{i}. {name}{mark}")
+        lines.append("\n💡 发送「/models <序号或模型名>」即可切换")
         if current not in models:
-            lines.append(f"\n⚠️ 当前配置的模型「{current}」不在可用列表中，请在 config.py 中修改 AI_MODEL")
+            lines.append(f"⚠️ 当前配置的模型「{current}」不在可用列表中，请用 /models 切换")
         return "\n".join(lines)
     except Exception as e:
         traceback.print_exc()
