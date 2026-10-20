@@ -47,15 +47,31 @@ class AIChat:
             return f"✅ 已切换为「{model_name}」，但持久化失败：{e}"
 
     def load_all_contexts(self):
-        """启动时加载所有已保存的上下文"""
+        """启动时加载所有已保存的上下文，并强制用 SKILL.md 人格刷新 system prompt"""
         from modules.context_persistence import list_sessions, load_context
         sessions = list_sessions()
         for sid in sessions:
             msgs = load_context(sid)
             if msgs:
-                self.contexts[sid] = msgs
+                self.contexts[sid] = self._refresh_persona(msgs)
                 print(f"📂 加载会话 {sid}，共 {len(msgs)} 条消息")
         print(f"✅ 加载了 {len(self.contexts)} 个会话")
+
+    def _refresh_persona(self, msgs):
+        """替换会话中的 system prompt 为当前 SKILL.md 人格（保留历史消息）"""
+        persona = load_persona()
+        today = datetime.now().strftime("%Y年%m月%d日")
+        sys_prompt = (
+            f"{today}。\n"
+            f"{persona}\n"
+            "群聊中可使用 Markdown 语法美化回复：\n"
+            "用 ``` 包裹代码块，用 **加粗** 强调重点，\n"
+            "用有序/无序列表组织信息。\n"
+        )
+        if msgs and msgs[0].get("role") == "system":
+            history = [dict(m) for m in msgs[1:]]
+            return [{"role": "system", "content": sys_prompt}] + history
+        return [{"role": "system", "content": sys_prompt}] + [dict(m) for m in msgs]
 
     async def chat(self, session_id: str, user_message: str, is_group: bool) -> str:
         print(f"📨 收到消息: {user_message}")
@@ -80,7 +96,7 @@ class AIChat:
         if session_id not in self.contexts:
             loaded = load_context(session_id)
             if loaded:
-                self.contexts[session_id] = loaded
+                self.contexts[session_id] = self._refresh_persona(loaded)
             else:
                 today = datetime.now().strftime("%Y年%m月%d日")
                 persona = load_persona()
