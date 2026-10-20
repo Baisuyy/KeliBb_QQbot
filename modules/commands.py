@@ -12,6 +12,7 @@ from modules.context_persistence import delete_context
 from modules.config import ADMIN_OPENID, EXEC_USER, WP_URL, WP_USERNAME, WP_APPLICATION_PASSWORD
 from modules.config import TTS_API_KEY, TTS_ENDPOINT, TTS_VOICE, TTS_LANGUAGE
 from modules.config import APP_ID, APP_SECRET
+from modules.config import AI_API_URL, AI_API_KEY, AI_MODEL
 
 # ===== access_token 缓存 =====
 _qq_token_cache = {"token": None, "expires_at": 0}
@@ -279,3 +280,54 @@ async def cmd_tts(message, args, client, ai, is_group, session_id):
     except Exception as e:
         traceback.print_exc()
         return f"❌ TTS 处理失败喵：{str(e)[:100]}"
+
+
+async def cmd_models(message, args, is_group=False):
+    """查询 AI API 当前可用的模型列表"""
+    user_id = _get_user_id(message, is_group)
+    if user_id != ADMIN_OPENID:
+        return "⛔ 只有管理员才能执行此命令喵～"
+
+    # 从 AI_API_URL 推导 models 端点（兼容 /v1/chat/completions 或 /v1/ 形式）
+    base_url = AI_API_URL.rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        base_url = base_url[: -len("/chat/completions")]
+    elif base_url.endswith("/completions"):
+        base_url = base_url[: -len("/completions")]
+    models_url = f"{base_url}/models"
+
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                models_url,
+                headers={"Authorization": f"Bearer {AI_API_KEY}"},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as r:
+                if r.status != 200:
+                    error_text = await r.text()
+                    return f"❌ 获取模型列表失败 (HTTP {r.status})：{error_text[:150]}"
+                data = await r.json()
+
+        items = data.get("data", []) if isinstance(data, dict) else data
+        if not items:
+            return f"❌ 响应中没有模型数据：{str(data)[:150]}"
+
+        models = []
+        seen = set()
+        for m in items:
+            name = m.get("id") or m.get("model") if isinstance(m, dict) else str(m)
+            if name and name not in seen:
+                seen.add(name)
+                models.append(name)
+
+        current = AI_MODEL
+        lines = [f"📋 API 可用模型（共 {len(models)} 个）："]
+        for i, name in enumerate(models, 1):
+            mark = " 👈 当前使用" if name == current else ""
+            lines.append(f"{i}. {name}{mark}")
+        if current not in models:
+            lines.append(f"\n⚠️ 当前配置的模型「{current}」不在可用列表中，请在 config.py 中修改 AI_MODEL")
+        return "\n".join(lines)
+    except Exception as e:
+        traceback.print_exc()
+        return f"❌ 查询模型失败喵：{str(e)[:100]}"
