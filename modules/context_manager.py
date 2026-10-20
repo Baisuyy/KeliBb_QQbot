@@ -2,6 +2,7 @@ import json
 import tiktoken
 from datetime import datetime
 from modules.config import MAX_TOKENS, COMPRESS_THRESHOLD, COMPRESS_TARGET, KEEP_RECENT
+from modules.persona import load_persona
 
 class ContextManager:
     def __init__(self):
@@ -31,7 +32,7 @@ class ContextManager:
             return None, [], []
         system_msg = messages[0] if messages[0].get('role') == 'system' else None
         if not system_msg:
-            system_msg = {"role": "system", "content": "你是一只可爱的猫娘，名叫可丽堡堡。"}
+            system_msg = {"role": "system", "content": load_persona()}
             old_msgs = messages[: -KEEP_RECENT] if len(messages) > KEEP_RECENT else []
             recent_msgs = messages[-KEEP_RECENT:] if len(messages) > KEEP_RECENT else messages
         else:
