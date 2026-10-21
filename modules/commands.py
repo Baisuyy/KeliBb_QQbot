@@ -382,51 +382,105 @@ async def cmd_memory(message, args, is_group=False):
 
 
 async def cmd_inject(message, args, is_group, ai=None, session_id=None):
-    """管理员指令注入：向当前会话的 AI 上下文注入任意指令"""
+    """管理员指令注入管理：list / add / delete / skill 查看-启用-禁用"""
+    from modules import skills as skill_lib
+
     user_id = _get_user_id(message, is_group)
     if user_id != ADMIN_OPENID:
         return "⛔ 只有管理员才能执行此命令喵～"
 
-    if not args.strip():
-        return (
-            "💉 指令注入用法：\n"
-            "/inject <内容> —— 注入系统级指令（AI 会当成最高指示遵守）\n"
-            "/inject -u <内容> —— 以用户身份注入一条消息\n"
-            "/inject -a <内容> —— 以 AI 身份注入一条消息\n"
-            "注入立即生效，无需重启。"
-        )
+    if ai is None or session_id is None:
+        return "❌ 内部错误：会话上下文不可用"
+
+    usage = (
+        "💉 指令注入用法：\n"
+        "/inject add <内容> —— 添加注入指令（默认系统级，AI 当成最高指示遵守）\n"
+        "/inject add -u <内容> / add -a <内容> —— 以用户/AI 身份注入消息\n"
+        "/inject list —— 查看当前会话已注入的指令\n"
+        "/inject delete <编号> —— 删除指定编号的注入\n"
+        "/inject skill —— 查看已加载的 skill 库\n"
+        "/inject skill enable <名> / skill disable <名> —— 启用/禁用 skill\n"
+        "💡 把 .md 文件放进服务器 skills/ 目录即自动入库（默认禁用）"
+    )
+
+    args = args.strip()
+    if not args:
+        return usage
+
+    parts = args.split(None, 1)
+    sub = parts[0].lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    # ===== list：查看当前注入 =====
+    if sub in ("list", "列表"):
+        items = ai.list_injections(session_id)
+        if not items:
+            return "💉 当前会话没有注入任何指令。用 /inject add <内容> 添加～"
+        role_cn = {"system": "系统级", "user": "用户", "assistant": "AI"}
+        lines = [f"💉 当前会话已注入 {len(items)} 条："]
+        for item in items:
+            lines.append(f"#{item['id']} [{role_cn.get(item['role'], item['role'])}] {item['text'][:80]}")
+        lines.append("\n💡 /inject delete <编号> 删除指定条目")
+        return "\n".join(lines)
+
+    # ===== delete：按编号删除 =====
+    if sub in ("delete", "del", "删除"):
+        if not rest.isdigit():
+            return "用法：/inject delete <编号>（编号用 /inject list 查看）"
+        removed = ai.delete_injection(session_id, int(rest))
+        if not removed:
+            return f"❌ 找不到编号 #{rest} 的注入，用 /inject list 查看"
+        left = len(ai.list_injections(session_id))
+        return f"🗑️ 已删除 #{removed['id']} [{removed['role']}]：{removed['text'][:80]}\n（剩余 {left} 条，立即生效）"
+
+    # ===== skill：查看/启用/禁用 =====
+    if sub in ("skill", "技能"):
+        if not rest:
+            skills = skill_lib.list_skills()
+            if not skills:
+                return (
+                    f"📚 skill 库为空。把 .md/.txt 文件放到服务器 {skill_lib.SKILLS_DIR}/ 目录，"
+                    "即自动入库（默认禁用）～"
+                )
+            lines = ["📚 已加载的 skill 库："]
+            for i, s in enumerate(skills, 1):
+                flag = "✅ 启用中" if s["enabled"] else "🚫 禁用"
+                lines.append(f"{i}. {s['name']}（{s['chars']} 字符）—— {flag}")
+            lines.append("\n💡 /inject skill enable <名> 启用，/inject skill disable <名> 禁用")
+            return "\n".join(lines)
+
+        sp = rest.split(None, 1)
+        action = sp[0].lower()
+        name = sp[1].strip() if len(sp) > 1 else ""
+        if action in ("enable", "on", "启用"):
+            if not name:
+                return "用法：/inject skill enable <skill名>"
+            ok, msg = skill_lib.set_skill(name, True)
+            return msg
+        if action in ("disable", "off", "禁用"):
+            if not name:
+                return "用法：/inject skill disable <skill名>"
+            ok, msg = skill_lib.set_skill(name, False)
+            return msg
+        return "用法：/inject skill [enable <名> | disable <名>]"
+
+    # ===== add：添加注入（也兼容不带 add 前缀直接写内容） =====
+    if sub in ("add", "添加"):
+        text = rest
+    else:
+        text = args
 
     role = "system"
-    text = args.strip()
-    # 解析角色前缀
     if text.startswith(("-u ", "-a ")):
         flag, text = text[:2], text[3:].strip()
         role = "user" if flag == "-u" else "assistant"
 
     if not text:
-        return "❌ 注入内容不能为空喵～"
+        return usage
 
-    if ai is None or session_id is None:
-        return "❌ 内部错误：会话上下文不可用"
-
-    from modules.context_persistence import load_context, save_context
-
-    # 确保会话已加载（可能从未在本进程聊天过）
-    if session_id not in ai.contexts:
-        loaded = load_context(session_id)
-        if loaded:
-            ai.contexts[session_id] = ai._refresh_persona(loaded)
-        else:
-            ai.contexts[session_id] = [{"role": "system", "content": ai._build_persona_prompt(is_group)}]
-
-    msgs = ai.contexts[session_id]
-    if role == "system":
-        # 系统级指令紧跟主 system prompt 之后，权重最高
-        msgs.insert(1, {"role": "system", "content": f"【管理员指令（必须遵守）】{text}"})
-    else:
-        msgs.append({"role": role, "content": text})
-    ai.contexts[session_id] = msgs
-    save_context(session_id, msgs)
-
+    inj_id = ai.add_injection(session_id, role, text)
     role_name = {"system": "系统级指令", "user": "用户消息", "assistant": "AI消息"}[role]
-    return f"💉 已注入{role_name}到当前会话（第 {len(msgs)} 条）：\n{text[:200]}"
+    return (
+        f"💉 已添加 #{inj_id} {role_name}：\n{text[:200]}\n"
+        f"（立即生效；共 {len(ai.list_injections(session_id))} 条，/inject list 查看）"
+    )
