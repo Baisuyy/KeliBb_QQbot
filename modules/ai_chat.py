@@ -9,6 +9,7 @@ from modules.search import search_duckduckgo
 from modules.context_manager import context_manager
 from modules.context_persistence import load_context, save_context, delete_context
 from modules.persona import load_persona
+from modules.memory import build_memory_context
 
 # 运行时模型切换的持久化文件
 MODEL_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model_state.json")
@@ -57,17 +58,27 @@ class AIChat:
                 print(f"📂 加载会话 {sid}，共 {len(msgs)} 条消息")
         print(f"✅ 加载了 {len(self.contexts)} 个会话")
 
-    def _refresh_persona(self, msgs):
-        """替换会话中的 system prompt 为当前 SKILL.md 人格（保留历史消息）"""
+    def _build_persona_prompt(self, is_group: bool) -> str:
+        """组装 system prompt：人格 + 长期记忆 + 群聊/私聊格式规则"""
         persona = load_persona()
+        mem = build_memory_context()
         today = datetime.now().strftime("%Y年%m月%d日")
-        sys_prompt = (
-            f"{today}。\n"
-            f"{persona}\n"
-            "群聊中可使用 Markdown 语法美化回复：\n"
-            "用 ``` 包裹代码块，用 **加粗** 强调重点，\n"
-            "用有序/无序列表组织信息。\n"
-        )
+        sys_prompt = f"{today}。\n{persona}\n"
+        if mem:
+            sys_prompt += f"{mem}\n"
+        if is_group:
+            sys_prompt += (
+                "群聊中可使用 Markdown 语法美化回复：\n"
+                "用 ``` 包裹代码块，用 **加粗** 强调重点，\n"
+                "用有序/无序列表组织信息。\n"
+            )
+        else:
+            sys_prompt += "禁止使用任何Markdown语法（如 # * - ``` 等），只输出纯文本。\n"
+        return sys_prompt
+
+    def _refresh_persona(self, msgs):
+        """替换会话中的 system prompt 为当前 SKILL.md 人格 + 长期记忆（保留历史消息）"""
+        sys_prompt = self._build_persona_prompt(is_group=True)
         if msgs and msgs[0].get("role") == "system":
             history = [dict(m) for m in msgs[1:]]
             return [{"role": "system", "content": sys_prompt}] + history
@@ -98,23 +109,7 @@ class AIChat:
             if loaded:
                 self.contexts[session_id] = self._refresh_persona(loaded)
             else:
-                today = datetime.now().strftime("%Y年%m月%d日")
-                persona = load_persona()
-                if is_group:
-                    sys_prompt = (
-                        f"{today}。\n"
-                        f"{persona}\n"
-                        "群聊中可使用 Markdown 语法美化回复：\n"
-                        "用 ``` 包裹代码块，用 **加粗** 强调重点，\n"
-                        "用有序/无序列表组织信息。\n"
-                    )
-                else:
-                    sys_prompt = (
-                        f"{today}。\n"
-                        f"{persona}\n"
-                        "禁止使用任何Markdown语法（如 # * - ``` 等），只输出纯文本。\n"
-                    )
-                self.contexts[session_id] = [{"role": "system", "content": sys_prompt}]
+                self.contexts[session_id] = [{"role": "system", "content": self._build_persona_prompt(is_group)}]
 
         context = self.contexts[session_id]
         # 跨天检查与压缩

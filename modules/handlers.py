@@ -1,6 +1,7 @@
 import re
 import subprocess
 import traceback
+import asyncio
 import aiohttp
 from datetime import datetime
 from botpy.message import Message
@@ -11,6 +12,7 @@ from modules.reply_utils import send_reply
 from modules.help_text import get_help
 from modules.commands import *
 from modules.diary import append_entry
+from modules.memory import extract_memories
 
 class MessageHandler:
     def __init__(self, client):
@@ -59,6 +61,10 @@ class MessageHandler:
                 reply = await cmd_wp(message, args, is_group)
             elif cmd == "/diary":
                 reply = await cmd_diary(message, self.ai, session_id, is_group)
+            elif cmd == "/memory":
+                reply = await cmd_memory(message, args, is_group)
+            elif cmd == "/inject":
+                reply = await cmd_inject(message, args, is_group, ai=self.ai, session_id=session_id)
             elif cmd == "/tts":
                 reply = await cmd_tts(message, args, self.client, self.ai, is_group, session_id)
                 if reply is None:
@@ -80,6 +86,8 @@ class MessageHandler:
             append_entry(f"[{now}] {display_name}: {clean_content}")
             append_entry(f"[{now}] 驴吻墙: {reply}")
             await send_reply(self.client, message, reply, is_group)
+            # 异步提取长期记忆（自动认识人/事物，不阻塞回复）
+            asyncio.ensure_future(extract_memories(self.ai, f"{display_name}: {clean_content}", reply))
 
     def _get_help(self, is_group: bool):
         return get_help(is_group)
