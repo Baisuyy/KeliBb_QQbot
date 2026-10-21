@@ -352,3 +352,81 @@ async def cmd_models(message, args, is_group=False, ai=None):
     except Exception as e:
         traceback.print_exc()
         return f"❌ 查询模型失败喵：{str(e)[:100]}"
+
+
+async def cmd_memory(message, args, is_group=False):
+    """查看长期记忆库（仅管理员）"""
+    from modules.memory import load_memory
+    user_id = _get_user_id(message, is_group)
+    if user_id != ADMIN_OPENID:
+        return "⛔ 只有管理员才能执行此命令喵～"
+
+    data = load_memory()
+    people = data.get("people", {})
+    things = data.get("things", [])
+
+    lines = ["🧠 长期记忆库："]
+    if people:
+        for name, info in people.items():
+            facts = info.get("facts", [])
+            lines.append(f"👤 {name}：{'；'.join(facts) if facts else '（暂无事实）'}")
+    else:
+        lines.append("（还没记住任何人）")
+    if things:
+        lines.append("\n📌 约定/事物：")
+        for t in things:
+            lines.append(f"- {t}")
+    if not people and not things:
+        return "🧠 记忆库还是空的。聊天时提到「我叫XX」「约定/欠/带」等，我会自动记住～"
+    return "\n".join(lines)
+
+
+async def cmd_inject(message, args, is_group, ai=None, session_id=None):
+    """管理员指令注入：向当前会话的 AI 上下文注入任意指令"""
+    user_id = _get_user_id(message, is_group)
+    if user_id != ADMIN_OPENID:
+        return "⛔ 只有管理员才能执行此命令喵～"
+
+    if not args.strip():
+        return (
+            "💉 指令注入用法：\n"
+            "/inject <内容> —— 注入系统级指令（AI 会当成最高指示遵守）\n"
+            "/inject -u <内容> —— 以用户身份注入一条消息\n"
+            "/inject -a <内容> —— 以 AI 身份注入一条消息\n"
+            "注入立即生效，无需重启。"
+        )
+
+    role = "system"
+    text = args.strip()
+    # 解析角色前缀
+    if text.startswith(("-u ", "-a ")):
+        flag, text = text[:2], text[3:].strip()
+        role = "user" if flag == "-u" else "assistant"
+
+    if not text:
+        return "❌ 注入内容不能为空喵～"
+
+    if ai is None or session_id is None:
+        return "❌ 内部错误：会话上下文不可用"
+
+    from modules.context_persistence import load_context, save_context
+
+    # 确保会话已加载（可能从未在本进程聊天过）
+    if session_id not in ai.contexts:
+        loaded = load_context(session_id)
+        if loaded:
+            ai.contexts[session_id] = ai._refresh_persona(loaded)
+        else:
+            ai.contexts[session_id] = [{"role": "system", "content": ai._build_persona_prompt(is_group)}]
+
+    msgs = ai.contexts[session_id]
+    if role == "system":
+        # 系统级指令紧跟主 system prompt 之后，权重最高
+        msgs.insert(1, {"role": "system", "content": f"【管理员指令（必须遵守）】{text}"})
+    else:
+        msgs.append({"role": role, "content": text})
+    ai.contexts[session_id] = msgs
+    save_context(session_id, msgs)
+
+    role_name = {"system": "系统级指令", "user": "用户消息", "assistant": "AI消息"}[role]
+    return f"💉 已注入{role_name}到当前会话（第 {len(msgs)} 条）：\n{text[:200]}"
